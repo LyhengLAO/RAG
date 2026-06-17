@@ -1,0 +1,33 @@
+# Baseline pipeline configuration — recursive chunking, dense-only, no reranking
+pipeline: baseline
+
+chunking:
+  strategy: recursive      # fixed | recursive | semantic
+  chunk_size: 512
+  chunk_overlap: 64
+
+embeddings:
+  text_model: "sentence-transformers/all-MiniLM-L6-v2"
+  image_model: null        # disabled in baseline
+  audio_model: null        # disabled in baseline
+
+indexing:
+  backend: chromadb
+  collection: mmrag_baseline
+
+retrieval:
+  strategy: dense          # dense | sparse | hybrid
+  top_k: 5
+  score_threshold: 0.0
+
+rerank:
+  enabled: false
+
+generation:
+  provider: ollama
+  model: llama3.2
+  temperature: 0.1
+  max_tokens: 512
+  system_prompt: >
+    You are a helpful assistant. Answer the question using only the provided context.
+    If the answer is not in the context, say "I don't know."

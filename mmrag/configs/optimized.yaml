@@ -1,0 +1,63 @@
+# Optimized pipeline — semantic chunking + hybrid retrieval (BM25+dense+RRF) + CrossEncoder rerank
+#
+# Comparison contract
+# -------------------
+# Only chunking and retrieval differ from the baseline.  Generation (model,
+# temperature, max_tokens, system_prompt) is intentionally identical so that
+# answer quality differences are solely attributable to retrieval improvements.
+#
+# Ablation axes
+# -------------
+# chunking.strategy      : semantic  →  recursive    (chunker ablation)
+# rerank.enabled         : true      →  false         (reranker ablation)
+# query_transform.enabled: false     →  true          (query-transform ablation)
+# query_transform.mode   : multi_query | hyde
+
+pipeline: optimized
+
+chunking:
+  strategy: semantic            # semantic | recursive  ← ablation axis 1
+  chunk_size: 512               # matches baseline for fair comparison
+  chunk_overlap: 0              # semantic chunker ignores overlap
+  # Breakpoint detection mode (mutually exclusive):
+  breakpoint_percentile: 25     # split at 25th-percentile similarity drop (default)
+  breakpoint_threshold: null    # null = percentile mode; set a float for fixed mode
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"   # for breakpoint detection
+
+embeddings:
+  text_model: "BAAI/bge-small-en-v1.5"  # stronger retrieval than all-MiniLM; same dim (384)
+  image_model: null
+  audio_model: null
+
+indexing:
+  backend: chromadb
+  collection: mmrag_optimized
+
+retrieval:
+  strategy: hybrid
+  top_k_retrieval: 20           # over-retrieve before reranking (ablation axis 2)
+  score_threshold: 0.0
+  bm25_index_path: "chroma_db/bm25_optimized.pkl"
+
+rerank:
+  enabled: true                 # ← ablation axis 2: set to false to test retrieval only
+  model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  top_k_final: 5                # final top-k after reranking
+  batch_size: 32
+
+query_transform:
+  enabled: false                # ← ablation axis 3: set to true to test query expansion
+  mode: multi_query             # multi_query | hyde
+  n_queries: 3                  # for multi_query: N paraphrases retrieved independently
+  hyde_instruction: >           # for hyde: prompt prefix sent to the LLM
+    Write a short passage that directly answers the following question:
+
+# ── IDENTICAL to baseline below this line ────────────────────────────────────
+generation:
+  provider: ollama
+  model: llama3.2
+  temperature: 0.1
+  max_tokens: 512
+  system_prompt: >
+    You are a helpful assistant. Answer the question using only the provided context.
+    If the answer is not in the context, say "I don't know."
