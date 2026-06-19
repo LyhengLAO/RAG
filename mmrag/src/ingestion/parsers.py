@@ -5,8 +5,8 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from mmrag.config import settings
-from mmrag.ingestion.schema import RawDocument
+from src.config import settings
+from src.ingestion.schema import RawDocument
 
 
 def parse_pdf(file_path: str | Path) -> list[RawDocument]:

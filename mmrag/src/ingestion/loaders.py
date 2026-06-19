@@ -86,7 +86,7 @@ def load_text_corpus(
         hf_cache_dir: Override the HuggingFace dataset cache root (``HF_HOME``).
 
     Returns:
-        List of :class:`~mmrag.ingestion.schema.RawDocument` with ``modality="text"``.
+        List of :class:`~src.ingestion.schema.RawDocument` with ``modality="text"``.
     """
     cache_dir = Path(cache_dir).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +164,7 @@ def load_image_captions(
         hf_cache_dir: Override HuggingFace cache root.
 
     Returns:
-        List of :class:`~mmrag.ingestion.schema.RawDocument` with ``modality="image"``.
+        List of :class:`~src.ingestion.schema.RawDocument` with ``modality="image"``.
     """
     cache_dir = Path(cache_dir).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -262,7 +262,7 @@ def load_audio_clips(
         hf_cache_dir: Override HuggingFace cache root.
 
     Returns:
-        List of :class:`~mmrag.ingestion.schema.RawDocument` with ``modality="audio"``.
+        List of :class:`~src.ingestion.schema.RawDocument` with ``modality="audio"``.
     """
     cache_dir = Path(cache_dir).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
