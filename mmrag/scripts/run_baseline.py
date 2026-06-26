@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 app = typer.Typer(
     name="run-baseline",

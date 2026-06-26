@@ -272,7 +272,7 @@ def _render_context_card(
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
 
-def zrender_sidebar() -> tuple[str, bool]:
+def render_sidebar() -> tuple[str, bool]:
     """Render persistent sidebar; return (api_base, show_mechanics)."""
     with st.sidebar:
         st.title("🧠 MMRag")

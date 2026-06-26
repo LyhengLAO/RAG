@@ -24,6 +24,8 @@ import logging
 import math
 from pathlib import Path
 from typing import Any
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import typer
 

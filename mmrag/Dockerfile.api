@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1
+# ── FastAPI / RAG backend ─────────────────────────────────────────────────────
+# BuildKit cache mounts keep the pip wheel cache between builds so that
+# a source-only change does not re-download multi-GB torch wheels.
+FROM python:3.11-slim
+
+# System libraries needed by the Python deps:
+#   build-essential  – C extensions (numpy, chromadb, etc.)
+#   ffmpeg           – audio decoding (faster-whisper / librosa)
+#   libgomp1         – OpenMP runtime (sentence-transformers / faiss)
+#   curl             – Docker healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ffmpeg \
+        libgomp1 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ── Python deps (layer cached until pyproject.toml changes) ──────────────────
+
+COPY pyproject.toml ./
+
+# Pre-install CPU-only PyTorch BEFORE the full dependency resolution so that
+# pip picks the ~250 MB CPU wheel instead of the ~2 GB CUDA wheel when it
+# resolves sentence-transformers / open-clip-torch / faster-whisper.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        "torch>=2.1.0,<3.0.0" \
+        "torchaudio>=2.1.0,<3.0.0"
+
+# ── Application source (layer cached until src/ or configs/ change) ───────────
+
+COPY src/ ./src/
+COPY configs/ ./configs/
+
+# Install the full package; torch is already present so pip won't pull CUDA.
+# --no-deps skipped intentionally: we want pip to verify dep constraints here.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install .
+
+# ── Runtime environment ────────────────────────────────────────────────────────
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    # HuggingFace model cache → mounted named volume (persists across restarts)
+    HF_HOME=/models/huggingface \
+    TRANSFORMERS_CACHE=/models/huggingface \
+    # ChromaDB index → mounted bind volume from ./chroma_db on the host
+    CHROMA_PERSIST_DIR=/app/chroma_db \
+    # Ollama URL inside the compose network
+    OLLAMA_HOST=http://ollama:11434 \
+    # Use CPU; set cuda if you add a GPU device to the compose service
+    WHISPER_DEVICE=cpu \
+    # Suppress tokenizer parallelism warning in forked workers
+    TOKENIZERS_PARALLELISM=false
+
+EXPOSE 8000
+
+# Single worker: models are held in memory per-process; multi-worker would
+# load duplicate model copies with no shared state benefit.
+CMD ["uvicorn", "mmrag.serving.api:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "1", \
+     "--log-level", "info"]

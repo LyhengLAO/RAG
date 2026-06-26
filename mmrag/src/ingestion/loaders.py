@@ -26,21 +26,20 @@ T = TypeVar("T")
 
 # ── internal helpers ─────────────────────────────────────────────────────────
 
+RETRYABLE = (ConnectionError, TimeoutError, OSError)
 
-def _retry(fn: Callable[[], T], attempts: int = 3, base_delay: float = 1.0, label: str = "") -> T:
-    """Call *fn* up to *attempts* times with exponential backoff on failure."""
+def _retry(fn, attempts=3, base_delay=1.0, label=""):
     tag = f" [{label}]" if label else ""
     for attempt in range(1, attempts + 1):
         try:
             return fn()
-        except Exception as exc:
+        except RETRYABLE as exc:          # ← réseau seulement
             if attempt == attempts:
                 logger.error("Failed after %d attempts%s: %s", attempts, tag, exc)
                 raise
             delay = base_delay * (2 ** (attempt - 1))
-            logger.warning(
-                "Attempt %d/%d%s failed, retrying in %.0fs — %s", attempt, attempts, tag, delay, exc
-            )
+            logger.warning("Attempt %d/%d%s failed, retrying in %.0fs — %s",
+                           attempt, attempts, tag, delay, exc)
             time.sleep(delay)
     raise RuntimeError("unreachable")  # pragma: no cover
 

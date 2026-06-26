@@ -1,0 +1,116 @@
+# MMRag — multimodal RAG comparison stack
+#
+# Services
+# ────────
+#   ollama   LLM inference server + model storage
+#   api      FastAPI / RAG backend  (port 8000)
+#   app      Streamlit frontend     (port 8501)
+#
+# Volumes
+# ───────
+#   ollama_data    Ollama model blobs  (/root/.ollama inside ollama container)
+#   hf_cache       HuggingFace models  (/models/huggingface inside api container)
+#   ./chroma_db    ChromaDB index      (bind-mount — inspectable from host)
+#   ./data         Corpus data         (bind-mount — managed by user)
+#   ./results      Metrics & figures   (bind-mount — read by both api and app)
+#
+# Startup order
+# ─────────────
+#   ollama (healthy: model pulled) → api (healthy: /health 200) → app
+#
+# One-command launch
+# ──────────────────
+#   docker compose up
+#   docker compose up --build   # rebuild images after code changes
+#
+# First run downloads ~2 GB (llama3.2) + sentence-transformers models.
+# All subsequent runs are fully offline: models served from named volumes.
+
+services:
+
+  # ── Ollama LLM server ──────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      # Named volume: model blobs persist across container restarts
+      - ollama_data:/root/.ollama
+      # Entrypoint script: auto-pulls the model on first run, skips if cached
+      - ./scripts/ollama_entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    ports:
+      - "11434:11434"   # expose for direct CLI access (ollama run llama3.2)
+    # Healthy only when the configured model is pulled and listed.
+    # retries×interval = 20×30 s = 10 min — enough for a first-time download.
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list 2>/dev/null | grep -q '${OLLAMA_MODEL:-llama3.2}' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── FastAPI / RAG backend ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      CHROMA_PERSIST_DIR: /app/chroma_db
+      HF_HOME: /models/huggingface
+      TRANSFORMERS_CACHE: /models/huggingface
+      RESULTS_DIR: /app/results
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-base}
+      WHISPER_DEVICE: cpu
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Index: survives container restarts, inspectable from host
+      - ./chroma_db:/app/chroma_db
+      # HF models: named volume, not re-downloaded across container recreations
+      - hf_cache:/models/huggingface
+      # Corpus and results: managed by the user on the host
+      - ./data:/app/data
+      - ./results:/app/results
+    depends_on:
+      ollama:
+        condition: service_healthy
+    # Healthy when the /health endpoint returns 200 (pipelines loaded).
+    # start_period covers Python startup + model import on first query.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  # ── Streamlit frontend ─────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    ports:
+      - "8501:8501"
+    environment:
+      MMRAG_API_BASE: http://api:8000
+    volumes:
+      # Read-only access so the dashboard can display generated figures
+      - ./results:/app/results:ro
+      # Read-only access so the UI can render image/audio source files
+      - ./data:/app/data:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ── Named volumes ──────────────────────────────────────────────────────────────
+volumes:
+  # Ollama model blobs (~2 GB per model); not deleted by `docker compose down`
+  ollama_data:
+  # HuggingFace model cache (sentence-transformers, cross-encoder, etc.)
+  hf_cache:
