@@ -206,20 +206,15 @@ class VectorStoreIndex:
 
         collection = self.get_collection(modality)
 
-        ids: list[str] = []
-        embed_list: list[list[float]] = []
-        documents: list[str] = []
-        metadatas: list[dict[str, Any]] = []
-
+        # Build parallel lists; deduplicate by stable ID (keep last occurrence)
+        # so that ChromaDB never receives a batch with duplicate IDs.
+        dedup: dict[str, tuple] = {}
         for chunk, vec in zip(chunks, embeddings):
             meta = chunk.metadata
             doc_id  = str(meta.get("doc_id",  meta.get("id", "unknown")))
             chunk_id = str(meta.get("chunk_id", doc_id))
 
             stable = _stable_id(doc_id, chunk_id, embedder_name)
-            ids.append(stable)
-            embed_list.append(vec.tolist())
-            documents.append(chunk.page_content)
 
             # Build Chroma-compatible metadata (always include key fields)
             chroma_meta = _to_chroma_meta(meta)
@@ -227,7 +222,19 @@ class VectorStoreIndex:
             chroma_meta.setdefault("chunk_id", chunk_id)
             chroma_meta.setdefault("modality", modality)
             chroma_meta["embedding_model"] = embedder_name
-            metadatas.append(chroma_meta)
+
+            dedup[stable] = (vec.tolist(), chunk.page_content, chroma_meta)
+
+        if len(dedup) < len(chunks):
+            logger.warning(
+                "VectorStoreIndex.upsert: deduplicated %d → %d chunks (duplicate chunk_ids)",
+                len(chunks), len(dedup),
+            )
+
+        ids        = list(dedup.keys())
+        embed_list = [v[0] for v in dedup.values()]
+        documents  = [v[1] for v in dedup.values()]
+        metadatas  = [v[2] for v in dedup.values()]
 
         collection.upsert(
             ids=ids,

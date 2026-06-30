@@ -57,28 +57,57 @@ def _nan_result(metric_names: list[str], n_rows: int, error: str) -> dict[str, A
     }
 
 
-def _build_judge(judge_model: str | None, embedding_model: str) -> tuple[Any, Any]:
-    """Construct (llm, embeddings) LangChain objects for the local judge.
-
-    Tries the modern ``langchain_ollama`` / ``langchain_huggingface`` packages
-    first and falls back to ``langchain_community`` for older installs.
-
-    Raises:
-        ImportError: If no compatible LangChain integration is available.
+def _patch_ollama_async_client() -> None:
+    """Remove rogue top-level kwargs (temperature, etc.) that langchain-ollama
+    passes directly to ollama.AsyncClient.chat(), which has never accepted them
+    as top-level args — they belong inside the `options` dict.
+    Idempotent: safe to call multiple times.
     """
+    try:
+        import ollama as _ollama  # noqa: PLC0415
+        _STRIPPED = {"temperature", "top_p", "top_k", "repeat_penalty", "seed", "num_predict"}
+        if getattr(_ollama.AsyncClient.chat, "_patched_for_ragas", False):
+            return
+        _orig = _ollama.AsyncClient.chat
+
+        async def _safe_chat(self, *args, **kwargs):
+            for k in _STRIPPED:
+                kwargs.pop(k, None)
+            return await _orig(self, *args, **kwargs)
+
+        _safe_chat._patched_for_ragas = True
+        _ollama.AsyncClient.chat = _safe_chat
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _build_judge(judge_model: str | None, embedding_model: str) -> tuple[Any, Any]:
+    """Construct (llm, embeddings) LangChain objects for the local judge."""
+    _patch_ollama_async_client()
+
     model = judge_model or settings.ollama_model
     base_url = settings.ollama_host
 
     # ── chat LLM (Ollama) ──────────────────────────────────────────────────────
     llm = None
-    try:
-        from langchain_ollama import ChatOllama  # noqa: PLC0415
-
-        llm = ChatOllama(model=model, base_url=base_url, temperature=0.0)
-    except Exception:  # noqa: BLE001 - fall back to community integration
-        from langchain_community.chat_models import ChatOllama  # noqa: PLC0415
-
-        llm = ChatOllama(model=model, base_url=base_url, temperature=0.0)
+    for kwargs in [
+        {"model": model, "base_url": base_url, "temperature": 0.0},
+        {"model": model, "base_url": base_url},
+    ]:
+        try:
+            from langchain_ollama import ChatOllama  # noqa: PLC0415
+            llm = ChatOllama(**kwargs)
+            break
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from langchain_community.chat_models import ChatOllama  # noqa: PLC0415
+            llm = ChatOllama(**kwargs)
+            break
+        except Exception:  # noqa: BLE001
+            pass
+    if llm is None:
+        raise ImportError("Could not instantiate ChatOllama — check langchain-ollama install")
 
     # ── embeddings (local sentence-transformers) ───────────────────────────────
     emb = None

@@ -196,7 +196,7 @@ def main(
         "rejected_validation": n_validate_fail,
         "rejected_duplicate": n_dup,
     }
-    typer.echo("\n" + "─" * 54)
+    typer.echo("\n" + "-" * 54)
     typer.echo(json.dumps(summary, indent=2))
 
     if not eval_records:
@@ -207,9 +207,9 @@ def main(
         )
         raise typer.Exit(code=1)
 
-    typer.echo(f"\n✓  eval set   → {eval_path}  ({len(eval_records)} questions)")
-    typer.echo(f"✓  candidates → {cand_path}  (review before relying on the set)")
-    typer.echo(f"✓  split      → {out_dir/'split.json'}")
+    typer.echo(f"\nOK  eval set   -> {eval_path}  ({len(eval_records)} questions)")
+    typer.echo(f"OK  candidates -> {cand_path}  (review before relying on the set)")
+    typer.echo(f"OK  split      -> {out_dir / 'split.json'}")
 
 
 if __name__ == "__main__":

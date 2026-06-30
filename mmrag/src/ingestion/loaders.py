@@ -97,31 +97,29 @@ def load_text_corpus(
         return docs
 
     try:
-        import datasets as hf  # noqa: PLC0415
+        import pandas as pd
     except ImportError:
-        logger.error("text: 'datasets' not installed — pip install datasets")
+        logger.error("text: pandas/pyarrow requis — pip install pandas pyarrow")
         return []
 
-    logger.info("text: downloading rajpurkar/squad …")
+    logger.info("text: reading rajpurkar/squad parquet (bypass datasets builder) …")
     try:
-        ds = _retry(
-            lambda: hf.load_dataset(
-                "rajpurkar/squad",
-                split="train",
-                cache_dir=str(hf_cache_dir) if hf_cache_dir else None,
+        df = _retry(
+            lambda: pd.read_parquet(
+                "hf://datasets/rajpurkar/squad/plain_text/train-00000-of-00001.parquet"
             ),
-            label="squad",
+            label="squad-parquet",
         )
-    except Exception as exc:
-        logger.error("text: download failed (%s) — returning []", exc)
+    except Exception:
+        import traceback
+        logger.error("text: parquet read failed\n%s", traceback.format_exc())
         return []
 
-    # Deduplicate contexts (many questions share the same Wikipedia passage)
-    seen: dict[str, str] = {}  # context → title
-    for row in ds:
-        ctx: str = row["context"].strip()
+    seen: dict[str, str] = {}
+    for ctx, title in zip(df["context"], df["title"]):
+        ctx = ctx.strip()
         if ctx and ctx not in seen:
-            seen[ctx] = row.get("title", "")
+            seen[ctx] = title
 
     unique = list(seen.items())
     random.Random(seed).shuffle(unique)
